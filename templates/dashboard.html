@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>ThreatWatch — Log Analysis Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@700;800&family=DM+Sans:wght@400;500&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg:      #060a0f;
+      --surface: #0d1520;
+      --card:    #111c2b;
+      --border:  #1e3050;
+      --accent:  #00d4ff;
+      --red:     #ff3b3b;
+      --orange:  #ff8c00;
+      --yellow:  #ffd700;
+      --green:   #00e676;
+      --text:    #c9d8ea;
+      --muted:   #4a6080;
+      --mono:    'Share Tech Mono', monospace;
+      --sans:    'DM Sans', sans-serif;
+      --display: 'Syne', sans-serif;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; overflow-x: hidden; }
+    body::before {
+      content: ''; position: fixed; inset: 0; z-index: 0;
+      background-image: linear-gradient(rgba(0,212,255,.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,212,255,.03) 1px, transparent 1px);
+      background-size: 40px 40px; pointer-events: none;
+    }
+    body::after {
+      content: ''; position: fixed; inset: 0; z-index: 0;
+      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,.07) 2px, rgba(0,0,0,.07) 4px);
+      pointer-events: none;
+    }
+    .wrap { position: relative; z-index: 1; max-width: 1280px; margin: 0 auto; padding: 0 2rem 4rem; }
+
+    /* Header */
+    header { display: flex; align-items: center; justify-content: space-between; padding: 1.5rem 0 2rem; border-bottom: 1px solid var(--border); margin-bottom: 2rem; }
+    .logo { display: flex; align-items: center; gap: 1rem; }
+    .logo-icon { width: 44px; height: 44px; background: linear-gradient(135deg, var(--accent), #0066ff); border-radius: 10px; display: grid; place-items: center; font-size: 1.3rem; box-shadow: 0 0 20px rgba(0,212,255,.3); }
+    .logo h1 { font-family: var(--display); font-size: 1.6rem; font-weight: 800; letter-spacing: -.02em; color: #fff; }
+    .logo span { color: var(--accent); }
+    .header-right { display: flex; gap: .75rem; align-items: center; }
+    .timestamp { font-family: var(--mono); font-size: .75rem; color: var(--muted); padding: .4rem .8rem; border: 1px solid var(--border); border-radius: 6px; }
+    .db-status { font-family: var(--mono); font-size: .72rem; padding: .4rem .9rem; border-radius: 6px; }
+    .db-connected    { background: rgba(0,230,118,.1); color: var(--green); border: 1px solid rgba(0,230,118,.3); }
+    .db-disconnected { background: rgba(255,59,59,.1);  color: var(--red);   border: 1px solid rgba(255,59,59,.3); }
+
+    .btn { padding: .5rem 1.25rem; border-radius: 8px; font-family: var(--sans); font-size: .85rem; font-weight: 500; cursor: pointer; border: none; transition: all .2s; }
+    .btn-accent  { background: var(--accent); color: #000; }
+    .btn-accent:hover  { box-shadow: 0 0 20px rgba(0,212,255,.5); transform: translateY(-1px); }
+    .btn-outline { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+    .btn-outline:hover { background: rgba(0,212,255,.08); }
+    .btn-purple  { background: transparent; color: #b080ff; border: 1px solid #b080ff; }
+    .btn-purple:hover  { background: rgba(176,128,255,.1); }
+
+    /* Nav Tabs */
+    .nav-tabs { display: flex; gap: .5rem; margin-bottom: 2rem; border-bottom: 1px solid var(--border); padding-bottom: 0; }
+    .tab-btn { font-family: var(--mono); font-size: .8rem; padding: .6rem 1.4rem; border-radius: 8px 8px 0 0; border: 1px solid transparent; border-bottom: none; background: transparent; color: var(--muted); cursor: pointer; transition: all .2s; margin-bottom: -1px; }
+    .tab-btn.active { background: var(--card); border-color: var(--border); color: var(--accent); border-bottom-color: var(--card); }
+    .tab-btn:hover:not(.active) { color: var(--text); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* Stats */
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+    .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1.5rem; position: relative; overflow: hidden; transition: border-color .2s; }
+    .stat-card:hover { border-color: var(--accent); }
+    .stat-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+    .stat-card.critical::before { background: var(--red); }
+    .stat-card.high::before     { background: var(--orange); }
+    .stat-card.medium::before   { background: var(--yellow); }
+    .stat-card.info::before     { background: var(--accent); }
+    .stat-card.good::before     { background: var(--green); }
+    .stat-label { font-size: .7rem; font-family: var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: .5rem; }
+    .stat-value { font-family: var(--display); font-size: 2rem; font-weight: 800; line-height: 1; color: #fff; }
+    .stat-card.critical .stat-value { color: var(--red); }
+    .stat-card.high .stat-value     { color: var(--orange); }
+
+    /* Section headers */
+    .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+    .section-title { font-family: var(--display); font-size: 1.1rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: .6rem; }
+    .badge { font-family: var(--mono); font-size: .7rem; padding: .2rem .6rem; border-radius: 99px; background: rgba(255,59,59,.15); color: var(--red); border: 1px solid rgba(255,59,59,.3); }
+    .badge-purple { background: rgba(176,128,255,.15); color: #b080ff; border-color: rgba(176,128,255,.3); }
+    .badge-green  { background: rgba(0,230,118,.1);   color: var(--green); border-color: rgba(0,230,118,.3); }
+
+    .filter-bar { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .filter-btn { font-family: var(--mono); font-size: .72rem; padding: .3rem .8rem; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; transition: all .15s; }
+    .filter-btn.active, .filter-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(0,212,255,.06); }
+
+    /* Alert Cards */
+    #alerts-container { display: flex; flex-direction: column; gap: .75rem; }
+    .alert-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem 1.5rem; display: grid; grid-template-columns: auto 1fr auto; gap: 1rem; align-items: start; transition: border-color .2s, transform .15s; animation: slideIn .3s ease both; }
+    @keyframes slideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .alert-card:hover { transform: translateX(4px); }
+    .alert-card[data-severity="CRITICAL"] { border-left: 3px solid var(--red); }
+    .alert-card[data-severity="HIGH"]     { border-left: 3px solid var(--orange); }
+    .alert-card[data-severity="MEDIUM"]   { border-left: 3px solid var(--yellow); }
+    .alert-card[data-severity="LOW"]      { border-left: 3px solid var(--green); }
+    .alert-icon { font-size: 1.5rem; margin-top: .1rem; }
+    .alert-type { font-family: var(--display); font-weight: 700; font-size: .95rem; color: #fff; margin-bottom: .3rem; }
+    .alert-desc { font-size: .85rem; color: var(--text); line-height: 1.5; margin-bottom: .5rem; }
+    .alert-meta { display: flex; gap: 1.25rem; flex-wrap: wrap; }
+    .meta-item { font-family: var(--mono); font-size: .72rem; color: var(--muted); }
+    .meta-item span { color: var(--accent); }
+    .severity-pill { font-family: var(--mono); font-size: .68rem; font-weight: 600; padding: .25rem .7rem; border-radius: 99px; white-space: nowrap; align-self: start; }
+    .pill-CRITICAL { background: rgba(255,59,59,.15);  color: var(--red);    border: 1px solid rgba(255,59,59,.4); }
+    .pill-HIGH     { background: rgba(255,140,0,.15);  color: var(--orange); border: 1px solid rgba(255,140,0,.4); }
+    .pill-MEDIUM   { background: rgba(255,215,0,.12);  color: var(--yellow); border: 1px solid rgba(255,215,0,.4); }
+    .pill-LOW      { background: rgba(0,230,118,.1);   color: var(--green);  border: 1px solid rgba(0,230,118,.3); }
+    .no-alerts { text-align: center; padding: 4rem; font-family: var(--mono); color: var(--green); font-size: 1.1rem; border: 1px solid rgba(0,230,118,.2); border-radius: 12px; background: rgba(0,230,118,.03); }
+
+    /* Log panels */
+    .log-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 2rem; }
+    @media (max-width: 768px) { .log-grid { grid-template-columns: 1fr; } }
+    .log-panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .log-panel-header { display: flex; align-items: center; justify-content: space-between; padding: .9rem 1.25rem; border-bottom: 1px solid var(--border); background: var(--surface); }
+    .log-panel-title { font-family: var(--mono); font-size: .8rem; color: var(--accent); display: flex; align-items: center; gap: .5rem; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+    .log-body { font-family: var(--mono); font-size: .72rem; color: #5a8ab0; padding: 1rem 1.25rem; height: 220px; overflow-y: auto; line-height: 1.7; }
+    .log-body::-webkit-scrollbar { width: 4px; }
+    .log-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    .log-line.fail { color: #ff6b6b; }
+    .log-line.ok   { color: #69db7c; }
+    .log-line.warn { color: #ffd43b; }
+    .log-line.info { color: #74c0fc; }
+
+    /* ── DATABASE TAB ── */
+    .db-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+    @media (max-width: 900px) { .db-grid { grid-template-columns: 1fr; } }
+
+    .db-panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .db-panel-header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); background: var(--surface); }
+    .db-panel-title { font-family: var(--mono); font-size: .82rem; color: #b080ff; }
+
+    /* DB Table */
+    .db-table-wrap { overflow-x: auto; max-height: 340px; overflow-y: auto; }
+    .db-table-wrap::-webkit-scrollbar { width: 4px; height: 4px; }
+    .db-table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+    table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: .72rem; }
+    th { background: var(--surface); color: var(--accent); padding: .6rem 1rem; text-align: left; font-weight: 600; letter-spacing: .05em; position: sticky; top: 0; white-space: nowrap; }
+    td { padding: .55rem 1rem; border-bottom: 1px solid rgba(30,48,80,.5); color: var(--text); white-space: nowrap; }
+    tr:hover td { background: rgba(0,212,255,.03); }
+    td.sev-CRITICAL { color: var(--red); font-weight: 600; }
+    td.sev-HIGH     { color: var(--orange); font-weight: 600; }
+    td.sev-MEDIUM   { color: var(--yellow); }
+
+    /* Top IPs */
+    .ip-bar-row { padding: .75rem 1.25rem; border-bottom: 1px solid rgba(30,48,80,.4); }
+    .ip-bar-top { display: flex; justify-content: space-between; margin-bottom: .4rem; font-family: var(--mono); font-size: .75rem; }
+    .ip-addr { color: var(--accent); }
+    .ip-count { color: var(--muted); }
+    .ip-bar-bg { background: rgba(30,48,80,.6); border-radius: 4px; height: 6px; overflow: hidden; }
+    .ip-bar-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #b080ff, var(--accent)); transition: width .6s ease; }
+
+    /* Scan history */
+    .hist-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 1rem; align-items: center; padding: .7rem 1.25rem; border-bottom: 1px solid rgba(30,48,80,.4); font-family: var(--mono); font-size: .72rem; }
+    .hist-time { color: var(--muted); }
+    .hist-pill { padding: .15rem .6rem; border-radius: 99px; font-size: .68rem; }
+
+    .no-db { text-align: center; padding: 3rem; font-family: var(--mono); color: var(--muted); }
+    .no-db .icon { font-size: 2.5rem; margin-bottom: 1rem; display: block; }
+
+    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Alert Modal */
+    .modal-overlay { position: fixed; inset: 0; z-index: 100; background: rgba(0,0,0,.8); backdrop-filter: blur(6px); display: flex; align-items: center; justify-content: center; animation: fadeIn .2s ease; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .modal { background: var(--card); border: 1px solid var(--border); border-radius: 16px; width: 90%; max-width: 580px; padding: 2rem; position: relative; animation: slideUp .25s ease; box-shadow: 0 0 60px rgba(0,0,0,.6); overflow: hidden; }
+    @keyframes slideUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .modal-close { position: absolute; top: 1rem; right: 1rem; background: var(--surface); border: 1px solid var(--border); color: var(--muted); width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 1rem; display: grid; place-items: center; transition: all .2s; z-index: 2; }
+    .modal-close:hover { color: #fff; border-color: var(--accent); }
+    .modal-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+    .modal-icon { font-size: 2.5rem; }
+    .modal-title { font-family: var(--display); font-size: 1.2rem; font-weight: 800; color: #fff; }
+    .modal-subtitle { font-family: var(--mono); font-size: .72rem; color: var(--muted); margin-top: .25rem; }
+    .modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem; }
+    .modal-box { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: .85rem 1rem; }
+    .modal-box-label { font-family: var(--mono); font-size: .65rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: .3rem; }
+    .modal-box-value { font-family: var(--mono); font-size: .88rem; color: var(--accent); }
+    .modal-desc-label { font-family: var(--mono); font-size: .65rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); margin-bottom: .5rem; }
+    .modal-desc { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; font-size: .85rem; color: var(--text); line-height: 1.6; margin-bottom: 1rem; }
+    .modal-rec { background: rgba(0,212,255,.05); border: 1px solid rgba(0,212,255,.2); border-radius: 8px; padding: 1rem; font-size: .82rem; color: var(--text); line-height: 1.6; }
+    .modal-topbar { height: 4px; position: absolute; top: 0; left: 0; right: 0; }
+    .modal-topbar.CRITICAL { background: var(--red); }
+    .modal-topbar.HIGH { background: var(--orange); }
+    .modal-topbar.MEDIUM { background: var(--yellow); }
+    .modal-topbar.LOW { background: var(--green); }
+    .alert-card { cursor: pointer; }
+    .alert-card:hover { border-color: var(--accent) !important; box-shadow: 0 0 15px rgba(0,212,255,.1); }
+
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Header -->
+  <header>
+    <div class="logo">
+      <div class="logo-icon">&#128274;</div>
+      <div>
+        <h1>Threat<span>Watch</span></h1>
+        <div style="font-size:.72rem;color:var(--muted);font-family:var(--mono);">Log Analysis &amp; Intrusion Detection</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="timestamp" id="ts">Loading...</div>
+      <div class="db-status {{ 'db-connected' if db_status == 'Connected' else 'db-disconnected' }}">
+        &#128database; MySQL: {{ db_status }}
+      </div>
+      <button class="btn btn-outline" onclick="refreshData()">&#8635; Refresh</button>
+      <button class="btn btn-purple" onclick="switchTab('db')">&#128196; Database</button>
+      <button class="btn btn-accent" onclick="regenerateLogs()">&#9889; New Simulation</button>
+    </div>
+  </header>
+
+  <!-- Nav Tabs -->
+  <div class="nav-tabs">
+    <button class="tab-btn active" id="tab-live"     onclick="switchTab('live')">&#128204; Live Alerts</button>
+    <button class="tab-btn"        id="tab-logs"     onclick="switchTab('logs')">&#128220; Log Viewer</button>
+    <button class="tab-btn"        id="tab-db"       onclick="switchTab('db')">&#128200; Database History</button>
+  </div>
+
+  <!-- ── TAB 1: Live Alerts ── -->
+  <div class="tab-panel active" id="panel-live">
+    <div class="stats-grid">
+      <div class="stat-card critical"><div class="stat-label">Critical</div><div class="stat-value" id="s-critical">{{ stats.critical }}</div></div>
+      <div class="stat-card high">   <div class="stat-label">High</div>    <div class="stat-value" id="s-high">{{ stats.high }}</div></div>
+      <div class="stat-card medium"> <div class="stat-label">Medium</div>  <div class="stat-value" id="s-medium">{{ stats.medium }}</div></div>
+      <div class="stat-card info">   <div class="stat-label">Total Alerts</div><div class="stat-value" id="s-total">{{ stats.total_alerts }}</div></div>
+      <div class="stat-card info">   <div class="stat-label">Attacker IPs</div><div class="stat-value" id="s-ips">{{ stats.unique_attacker_ips }}</div></div>
+      <div class="stat-card info">   <div class="stat-label">SSH Failed</div><div class="stat-value" id="s-ssh">{{ stats.ssh_failed_attempts }}</div></div>
+      <div class="stat-card info">   <div class="stat-label">Web Requests</div><div class="stat-value" id="s-web">{{ stats.apache_requests }}</div></div>
+      <div class="stat-card good">   <div class="stat-label">SSH Accepted</div><div class="stat-value" id="s-ok">{{ stats.ssh_accepted }}</div></div>
+    </div>
+
+    <div class="section-header">
+      <div class="section-title">&#128680; Security Alerts <span class="badge" id="alert-count">{{ alerts|length }} threats</span></div>
+      <div class="filter-bar">
+        <button class="filter-btn active" onclick="filterAlerts('ALL',this)">ALL</button>
+        <button class="filter-btn" onclick="filterAlerts('CRITICAL',this)">CRITICAL</button>
+        <button class="filter-btn" onclick="filterAlerts('HIGH',this)">HIGH</button>
+        <button class="filter-btn" onclick="filterAlerts('MEDIUM',this)">MEDIUM</button>
+      </div>
+    </div>
+
+    <div id="alerts-container">
+      {% if alerts %}
+        {% for a in alerts %}
+        <div class="alert-card" data-severity="{{ a.severity }}" data-idx="{{ loop.index0 }}" onclick="openModal(allAlerts[{{ loop.index0 }}])">
+          <div class="alert-icon">{{ a.icon }}</div>
+          <div class="alert-body">
+            <div class="alert-type">{{ a.type }}</div>
+            <div class="alert-desc">{{ a.description }}</div>
+            <div class="alert-meta">
+              <div class="meta-item">IP: <span>{{ a.ip }}</span></div>
+              {% if a.count %}<div class="meta-item">Events: <span>{{ a.count }}</span></div>{% endif %}
+              <div class="meta-item">Time: <span>{{ a.timestamp }}</span></div>
+            </div>
+          </div>
+          <div class="severity-pill pill-{{ a.severity }}">{{ a.severity }}</div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="no-alerts">No threats detected in current log files</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── TAB 2: Log Viewer ── -->
+  <div class="tab-panel" id="panel-logs">
+    <div class="log-grid">
+      <div class="log-panel">
+        <div class="log-panel-header">
+          <div class="log-panel-title"><div class="dot"></div>auth.log (SSH)</div>
+          <div style="font-size:.7rem;color:var(--muted);font-family:var(--mono);">live feed</div>
+        </div>
+        <div class="log-body" id="ssh-log">Loading...</div>
+      </div>
+      <div class="log-panel">
+        <div class="log-panel-header">
+          <div class="log-panel-title"><div class="dot"></div>apache_access.log</div>
+          <div style="font-size:.7rem;color:var(--muted);font-family:var(--mono);">live feed</div>
+        </div>
+        <div class="log-body" id="apache-log">Loading...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TAB 3: Database History ── -->
+  <div class="tab-panel" id="panel-db">
+    {% if db_status == 'Connected' %}
+
+      <!-- Top attacker IPs + Scan history -->
+      <div class="db-grid">
+
+        <!-- Top IPs -->
+        <div class="db-panel">
+          <div class="db-panel-header">
+            <div class="db-panel-title">&#128305; Top Attacker IPs (All Time)</div>
+            <span class="badge badge-purple">from database</span>
+          </div>
+          {% if top_ips %}
+            {% set max_count = top_ips[0].alert_count %}
+            {% for ip in top_ips %}
+            <div class="ip-bar-row">
+              <div class="ip-bar-top">
+                <span class="ip-addr">{{ ip.ip_address }}</span>
+                <span class="ip-count">{{ ip.alert_count }} alerts &nbsp;|&nbsp; {{ ip.max_severity }}</span>
+              </div>
+              <div class="ip-bar-bg">
+                <div class="ip-bar-fill" style="width:{{ (ip.alert_count / max_count * 100)|int }}%"></div>
+              </div>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="no-db"><span class="icon">&#128202;</span>No IP data yet</div>
+          {% endif %}
+        </div>
+
+        <!-- Scan Sessions -->
+        <div class="db-panel">
+          <div class="db-panel-header">
+            <div class="db-panel-title">&#128337; Recent Scan Sessions</div>
+            <span class="badge badge-green">{{ scan_history|length }} sessions</span>
+          </div>
+          {% if scan_history %}
+            <div class="hist-row" style="background:var(--surface);color:var(--muted);">
+              <span>Time</span><span>Total</span><span>Critical</span><span>High</span>
+            </div>
+            {% for s in scan_history %}
+            <div class="hist-row">
+              <span class="hist-time">{{ s.scanned_at }}</span>
+              <span style="color:var(--text);">{{ s.total_alerts }}</span>
+              <span style="color:var(--red);">{{ s.critical_count }}</span>
+              <span style="color:var(--orange);">{{ s.high_count }}</span>
+            </div>
+            {% endfor %}
+          {% else %}
+            <div class="no-db"><span class="icon">&#128337;</span>No sessions yet</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- Full Alerts Table -->
+      <div class="db-panel">
+        <div class="db-panel-header">
+          <div class="db-panel-title">&#128196; All Stored Alerts — MySQL alerts table</div>
+          <div style="display:flex;gap:.5rem;align-items:center;">
+            <span class="badge badge-purple" id="db-count">{{ db_alerts|length }} records</span>
+            <button class="btn btn-outline" style="font-size:.75rem;padding:.3rem .9rem;" onclick="loadDbHistory()">&#8635; Reload</button>
+          </div>
+        </div>
+        <div class="db-table-wrap">
+          <table id="db-table">
+            <thead>
+              <tr>
+                <th>Sl.No</th>
+                <th>Timestamp</th>
+                <th>Severity</th>
+                <th>Type</th>
+                <th>IP Address</th>
+                <th>Events</th>
+                <th>Description</th>
+              </tr>
+            </thead>
+            <tbody id="db-tbody">
+              {% if db_alerts %}
+                {% for a in db_alerts %}
+                <tr>
+                  <td style="color:var(--muted);">{{ loop.index }}</td>
+                  <td>{{ a.timestamp }}</td>
+                  <td class="sev-{{ a.severity }}">{{ a.severity }}</td>
+                  <td style="color:var(--accent);">{{ a.alert_type }}</td>
+                  <td>{{ a.ip_address }}</td>
+                  <td style="color:var(--text);">{{ a.event_count or '-' }}</td>
+                  <td style="color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;">{{ a.description }}</td>
+                </tr>
+                {% endfor %}
+              {% else %}
+                <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:2rem;">No alerts in database yet. Run a simulation first!</td></tr>
+              {% endif %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    {% else %}
+      <!-- MySQL not connected -->
+      <div class="no-alerts" style="color:var(--muted);">
+        <div style="font-size:3rem;margin-bottom:1rem;">&#128196;</div>
+        <div style="font-size:1rem;margin-bottom:.5rem;color:var(--text);">MySQL Not Connected</div>
+        <div style="font-size:.82rem;">Install MySQL, update password in database.py, and restart the app.</div>
+        <div style="margin-top:1rem;font-size:.78rem;">Alerts are still being saved to <span style="color:var(--accent);">logs/alerts.log</span></div>
+      </div>
+    {% endif %}
+  </div>
+
+
+<!-- Alert Detail Modal -->
+<div id="alert-modal" style="display:none;">
+  <div class="modal-overlay" onclick="closeModal(event)">
+    <div class="modal">
+      <div class="modal-topbar" id="modal-topbar"></div>
+      <button class="modal-close" onclick="closeModalBtn()">&#x2715;</button>
+      <div class="modal-header">
+        <div class="modal-icon" id="modal-icon"></div>
+        <div>
+          <div class="modal-title" id="modal-title"></div>
+          <div class="modal-subtitle" id="modal-subtitle"></div>
+        </div>
+      </div>
+      <div class="modal-grid">
+        <div class="modal-box">
+          <div class="modal-box-label">IP Address</div>
+          <div class="modal-box-value" id="modal-ip"></div>
+        </div>
+        <div class="modal-box">
+          <div class="modal-box-label">Severity</div>
+          <div class="modal-box-value" id="modal-severity"></div>
+        </div>
+        <div class="modal-box">
+          <div class="modal-box-label">Events Detected</div>
+          <div class="modal-box-value" id="modal-count"></div>
+        </div>
+        <div class="modal-box">
+          <div class="modal-box-label">Detected At</div>
+          <div class="modal-box-value" id="modal-time"></div>
+        </div>
+      </div>
+      <div class="modal-desc-label">Full Description</div>
+      <div class="modal-desc" id="modal-desc"></div>
+      <div class="modal-desc-label">Event Breakdown (<span id="modal-event-count"></span>)</div>
+      <div style="overflow-x:auto;max-height:180px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:1rem;">
+        <table style="width:100%;border-collapse:collapse;font-family:var(--mono);font-size:.72rem;" id="modal-events-table">
+          <thead>
+            <tr style="background:var(--surface);">
+              <th style="padding:.5rem .75rem;text-align:left;color:var(--accent);" id="modal-th1">#</th>
+              <th style="padding:.5rem .75rem;text-align:left;color:var(--accent);" id="modal-th2">Detail</th>
+              <th style="padding:.5rem .75rem;text-align:left;color:var(--accent);" id="modal-th3">Type</th>
+              <th style="padding:.5rem .75rem;text-align:left;color:var(--accent);" id="modal-th4">Info</th>
+            </tr>
+          </thead>
+          <tbody id="modal-events-body"></tbody>
+        </table>
+      </div>
+      <div class="modal-desc-label">Recommendation</div>
+      <div class="modal-rec" id="modal-rec"></div>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script>
+  let allAlerts = {{ alerts | tojson }};
+  // Pre-load all alert data including events for modal use
+  let currentFilter = 'ALL';
+
+
+  // ── Alert Modal ──────────────────────────────────────────────────────────
+  const RECOMMENDATIONS = {
+    'SSH Brute Force Attack':      'Block this IP immediately in your firewall. Enable fail2ban or similar tool. Switch to SSH key-based authentication and disable password login.',
+    'SSH User Enumeration':        'Block this IP. Disable root SSH login. Audit all valid usernames. Consider changing SSH port from 22.',
+    'Apache Directory/Auth Scan':  'Block IP in firewall. Enable rate limiting on web server. Review access logs for successful intrusions. Hide server version info.',
+    'Sensitive Path Access':       'URGENT: Block IP immediately. Verify sensitive files were not accessed or downloaded. Remove exposed config files from web root.',
+    'HTTP 500 Error Spike':        'Review application error logs. Check for SQL injection or exploit attempts. Validate all user inputs. Patch vulnerable dependencies.',
+  };
+
+  const SEV_COLORS = { CRITICAL: '#ff3b3b', HIGH: '#ff8c00', MEDIUM: '#ffd700', LOW: '#00e676' };
+
+  function openModal(a) {
+    document.getElementById('modal-icon').textContent     = a.icon;
+    document.getElementById('modal-title').textContent    = a.type;
+    document.getElementById('modal-subtitle').textContent = 'Threat detected at ' + a.timestamp;
+    document.getElementById('modal-ip').textContent       = a.ip;
+    document.getElementById('modal-severity').textContent = a.severity;
+    document.getElementById('modal-severity').style.color = SEV_COLORS[a.severity] || 'var(--accent)';
+    document.getElementById('modal-count').textContent    = a.count ? a.count + ' events' : 'N/A';
+    document.getElementById('modal-time').textContent     = a.timestamp;
+    document.getElementById('modal-desc').textContent     = a.description;
+    document.getElementById('modal-topbar').className     = 'modal-topbar ' + a.severity;
+    document.getElementById('modal-rec').textContent      = RECOMMENDATIONS[a.type] || 'Investigate this IP and monitor for further suspicious activity.';
+
+    // Populate events table
+    const evBody = document.getElementById('modal-events-body');
+    const evCount = document.getElementById('modal-event-count');
+    const events = a.events || [];
+    evCount.textContent = events.length + ' events';
+
+    // Set column headers based on alert type
+    const headers = {
+      'SSH Brute Force Attack':     ['#', 'Attempt', 'Result', 'IP'],
+      'SSH User Enumeration':       ['#', 'Probe', 'Status', 'IP'],
+      'Apache Directory/Auth Scan': ['#', 'Path Accessed', 'HTTP Status', 'IP'],
+      'Sensitive Path Access':      ['#', 'Path', 'HTTP Status', 'Method'],
+      'HTTP 500 Error Spike':       ['#', 'Path', 'Error', 'Method'],
+    };
+    const cols = headers[a.type] || ['#', 'Detail', 'Type', 'Info'];
+    document.getElementById('modal-th1').textContent = cols[0];
+    document.getElementById('modal-th2').textContent = cols[1];
+    document.getElementById('modal-th3').textContent = cols[2];
+    document.getElementById('modal-th4').textContent = cols[3];
+
+    if (!events.length) {
+      evBody.innerHTML = '<tr><td colspan="4" style="padding:1rem;text-align:center;color:var(--muted);">No event details available</td></tr>';
+    } else {
+      evBody.innerHTML = events.map((e, i) => {
+        const isErr = e.col3 && (e.col3.includes('500') || e.col3.includes('Failed'));
+        const isWarn = e.col3 && (e.col3.includes('401') || e.col3.includes('403') || e.col3.includes('404'));
+        const color = isErr ? 'var(--red)' : isWarn ? 'var(--yellow)' : 'var(--text)';
+        const bg = i % 2 === 0 ? 'rgba(0,0,0,.15)' : 'transparent';
+        return '<tr style="background:' + bg + ';">' +
+          '<td style="padding:.45rem .75rem;color:var(--muted);">' + (i+1) + '</td>' +
+          '<td style="padding:.45rem .75rem;color:var(--accent);max-width:160px;overflow:hidden;text-overflow:ellipsis;">' + (e.col2||'-') + '</td>' +
+          '<td style="padding:.45rem .75rem;color:' + color + ';">' + (e.col3||'-') + '</td>' +
+          '<td style="padding:.45rem .75rem;color:var(--muted);">' + (e.col4||'-') + '</td>' +
+          '</tr>';
+      }).join('');
+    }
+    document.getElementById('alert-modal').style.display  = 'block';
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeModal(e) { if (e.target.classList.contains('modal-overlay')) closeModalBtn(); }
+  function closeModalBtn() { document.getElementById('alert-modal').style.display = 'none'; document.body.style.overflow = ''; }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModalBtn(); });
+
+  // Clock
+  function updateClock() { document.getElementById('ts').textContent = new Date().toLocaleString(); }
+  updateClock(); setInterval(updateClock, 1000);
+
+  // Tab switching
+  function switchTab(name) {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    document.getElementById('panel-' + name).classList.add('active');
+    if (name === 'logs') loadLogPreviews();
+    if (name === 'db')   loadDbHistory();
+  }
+
+  // Filter alerts
+  function filterAlerts(severity, btn) {
+    currentFilter = severity;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderAlerts(allAlerts);
+  }
+
+  function renderAlerts(alerts) {
+    const container = document.getElementById('alerts-container');
+    const filtered = currentFilter === 'ALL' ? alerts : alerts.filter(a => a.severity === currentFilter);
+    if (!filtered.length) { container.innerHTML = '<div class="no-alerts">No alerts matching filter</div>'; return; }
+    container.innerHTML = filtered.map((a, i) => `
+      <div class="alert-card" data-severity="${a.severity}" style="animation-delay:${i*50}ms" onclick='openModal(${JSON.stringify(a).replace(/'/g, "&#39;")})'>
+        <div class="alert-icon">${a.icon}</div>
+        <div class="alert-body">
+          <div class="alert-type">${a.type}</div>
+          <div class="alert-desc">${a.description}</div>
+          <div class="alert-meta">
+            <div class="meta-item">IP: <span>${a.ip}</span></div>
+            ${a.count ? `<div class="meta-item">Events: <span>${a.count}</span></div>` : ''}
+            <div class="meta-item">Time: <span>${a.timestamp}</span></div>
+          </div>
+        </div>
+        <div class="severity-pill pill-${a.severity}">${a.severity}</div>
+      </div>`).join('');
+    document.getElementById('alert-count').textContent = `${filtered.length} threats`;
+  }
+
+  // Refresh live
+  async function refreshData() {
+    const btn = document.querySelector('.btn-outline');
+    btn.innerHTML = '<span class="spinner"></span>';
+    try {
+      const data = await (await fetch('/api/analyze')).json();
+      allAlerts = data.alerts; renderAlerts(allAlerts); updateStats(data.stats);
+    } finally { btn.textContent = 'Refresh'; }
+  }
+
+  async function regenerateLogs() {
+    const btn = document.querySelector('.btn-accent');
+    btn.textContent = 'Generating...'; btn.disabled = true;
+    try {
+      const data = await (await fetch('/api/regenerate', {method:'POST'})).json();
+      allAlerts = data.alerts; renderAlerts(allAlerts); updateStats(data.stats); loadLogPreviews();
+    } finally { btn.textContent = 'New Simulation'; btn.disabled = false; }
+  }
+
+  function updateStats(s) {
+    document.getElementById('s-critical').textContent = s.critical;
+    document.getElementById('s-high').textContent     = s.high;
+    document.getElementById('s-medium').textContent   = s.medium;
+    document.getElementById('s-total').textContent    = s.total_alerts;
+    document.getElementById('s-ips').textContent      = s.unique_attacker_ips;
+    document.getElementById('s-ssh').textContent      = s.ssh_failed_attempts;
+    document.getElementById('s-web').textContent      = s.apache_requests;
+    document.getElementById('s-ok').textContent       = s.ssh_accepted;
+  }
+
+  // Log preview
+  async function loadLogPreviews() {
+    try {
+      const [r1, r2] = await Promise.all([fetch('/log-raw/ssh'), fetch('/log-raw/apache')]);
+      const colorize = l => {
+        if (l.includes('Failed') || l.includes('Invalid')) return `<div class="log-line fail">${l}</div>`;
+        if (l.includes('Accepted')) return `<div class="log-line ok">${l}</div>`;
+        const s = parseInt((l.match(/" (\d{3}) /) || [])[1]);
+        if (s >= 500) return `<div class="log-line fail">${l}</div>`;
+        if (s >= 400) return `<div class="log-line warn">${l}</div>`;
+        if (s >= 200) return `<div class="log-line ok">${l}</div>`;
+        return `<div class="log-line info">${l}</div>`;
+      };
+      const el1 = document.getElementById('ssh-log');
+      el1.innerHTML = (await r1.text()).split('\n').filter(Boolean).map(colorize).join('');
+      el1.scrollTop = el1.scrollHeight;
+      const el2 = document.getElementById('apache-log');
+      el2.innerHTML = (await r2.text()).split('\n').filter(Boolean).map(colorize).join('');
+      el2.scrollTop = el2.scrollHeight;
+    } catch(e) { console.warn('Log preview error', e); }
+  }
+
+  // Load DB history via API
+  async function loadDbHistory() {
+    try {
+      const res = await fetch('/api/db-history');
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.alerts) return;
+
+      // Update table
+      const tbody = document.getElementById('db-tbody');
+      if (!tbody) return;
+      if (!data.alerts.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:2rem;">No alerts in database yet.</td></tr>';
+        return;
+      }
+      tbody.innerHTML = data.alerts.map((a, i) => `
+        <tr>
+          <td style="color:var(--muted);">${i + 1}</td>
+          <td>${a.timestamp}</td>
+          <td class="sev-${a.severity}">${a.severity}</td>
+          <td style="color:var(--accent);">${a.alert_type}</td>
+          <td>${a.ip_address}</td>
+          <td>${a.event_count || '-'}</td>
+          <td style="color:var(--muted);max-width:300px;overflow:hidden;text-overflow:ellipsis;">${a.description}</td>
+        </tr>`).join('');
+      document.getElementById('db-count').textContent = `${data.alerts.length} records`;
+    } catch(e) { console.warn('DB history error', e); }
+  }
+</script>
+</body>
+</html>
